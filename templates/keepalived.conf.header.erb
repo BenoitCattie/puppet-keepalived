@@ -1,0 +1,13 @@
+## MANAGED BY PUPPET ##
+
+global_defs {
+   notification_email {
+    root@localhost
+   }
+   notification_email_from keepalived@<%= fqdn %>
+
+   smtp_server 127.0.0.1
+   smtp_connect_timeout 10
+
+   lvs_id <%= fqdn %>
+} # END global_defs

@@ -1,0 +1,204 @@
+# keepalived module #
+Author  : Benoit CATTIE <puppet@benoit.cattie.net>
+Version : 1.0
+Licence : GPLv3
+
+Basic module for configuring keepalived with puppet.
+
+This module requires :
+ - puppet-common module (http://forge.puppetlabs.com/DavidSchmitt/common)
+ - stored configuration
+ - Create '/var/lib/puppet/modules/keepalived/functions' directory on the puppetmaster with write permission
+
+I m not going to explain how keepalived / IPVS works :
+ - http://www.keepalived.org/documentation.html ( http://www.keepalived.org/pdf/UserGuide.pdf )
+
+All variables without documentation in this module is documented in keepalived user guide
+
+# Special note for DSR config on the exported real server #
+
+This module setup loopback interface and arp config on exported real servers. 
+Be carefull when the real server reboots : config is made 'on the fly'.
+You can add some fixed config. In my case i construct /etc/network/interfaces using concat::fragment. So i have something like this in keepalived::virtual_server :
+
+	@@concat::fragment{"network_interfaces_eth0-DSR-$name":
+		target  => "/etc/network/interfaces",
+		ensure  => present,
+		content => "\t#DSR IP for $name\n\tup ip addr add ${virtual_ipaddress}/32 dev lo\n",
+		order   => 'eth0_20',
+		tag	=> "keepalived-exported-dsr-config-$name",
+	}
+with Concat::Fragment <<| tag == "keepalived-exported-dsr-config-$virtual_server_name" |>> in keepalived::exported_real_server
+
+This config is commented in those manifests.
+
+keepalived::arp_config class ensure arp configuration at boot time.
+
+
+## Class: keepalived::server ##
+
+install keepalived from packages
+install a basic /etc/keepalived/keepalived.conf file
+
+## Class: keepalived::arp_config ##
+
+This class manage arp_config on the real servers using /etc/sysctl.d/ directory.
+
+## Define: keepalived::virtual_server ##
+
+Configure a vrrp virtual server.
+Only DR mode is implemented in this module.
+
+This definition collect all keepalived::exported_real_server to construct keepalived.conf
+
+Variables : 
+        state : MASTER or BACKUP
+        virtual_router_id 	
+        virtual_ipaddress	
+        virtual_server_port	
+        lb_kind = 'DR' : Support only DR in this version		
+        interface = 'eth0'
+        priority = '' : If not set, BACKUP will take 100 and MASTER 200
+
+
+
+## Define: keepalived::real_server ##
+
+Configure a vrrp real server. (not exported, see "standelone config" example)
+
+Variables : 
+        ip
+        port
+        virtual_server_name : name of the related keepalived::virtual_server 
+        weight = '100',
+        check_type : MISC_CHECK , TCP_CHECK or HTTP_GET - if not set, the check is a TCP_CHECK on $port
+                check_connect_timeout = '2',
+                check_nb_get_retry = '2',
+                check_delay_before_retry = '2',
+                check_misc_path = '', #for MISC_CHECK
+                check_connect_port = '', #for TCP_CHECK and HTTP_GET
+                check_url_path = '', #for HTTP_GET
+                check_url_digest = '' #for HTTP_GET
+
+
+
+## Define: keepalived::exported_real_server ##
+
+Configure an "exported" vrrp real server. 
+This real server is collected by keepalived::virtual_server
+
+Variables : 
+        $virtual_server_name : the name of the keepalived::virtual_server collecting real servers
+        $port
+        $weight
+        $ip = "$ipaddress",
+        $check_type = 'TCP_CHECK', # MISC_CHECK , TCP_CHECK or HTTP_GET - if not set, the check is a TCP_CHECK on $port
+                $check_connect_timeout = '2',
+                $check_nb_get_retry = '2',
+                $check_delay_before_retry = '2',
+                $check_misc_path = '', #for MISC_CHECK
+                $check_connect_port = '', #for TCP_CHECK and HTTP_GET
+                $check_url_path = '', #for HTTP_GET
+                $check_url_digest = '' #for HTTP_GET
+        ) {
+
+
+## Sample Usage ##
+
+# standelone config #
+
+node vrrp_master {
+        include keepalived::server
+
+        keepalived::virtual_server{"lb_www":
+                state => 'MASTER',
+                virtual_router_id => "42",
+                virtual_ipaddress => "192.168.0.42",
+                virtual_server_port => "80",
+                lb_kind => "DR",
+                notification_email => "root@localhost",
+        }
+
+        keepalived::real_server{"www1":
+		virtual_server_name => "lb_www",
+                ip => '192.168.0.45',
+                port => '80',
+                weight => '100',
+        }
+
+        keepalived::real_server{"www2":
+		virtual_server_name => "lb_www",
+                ip => '192.168.0.46',
+                port => '80',
+                weight => '90',
+        }
+
+}
+
+
+# with exported ressource config #
+
+
+
+@keepalived::virtual_server{"lb_www":
+        virtual_router_id => "42",
+        virtual_ipaddress => "192.168.0.42",
+        virtual_server_port => "80",
+        lb_kind => "DR",
+}
+
+@keepalived::virtual_server{"lb_sql":
+        virtual_router_id => "43",
+        virtual_ipaddress => "192.168.0.43",
+        virtual_server_port => "3306",
+        lb_kind => "DR",
+}
+
+node vrrp_master {
+	include keepalived::server
+	Keepalived::Virtual_server <| title == "lb_www" |> {state => "MASTER"}
+	Keepalived::Virtual_server <| title == "lb_sql" |> {state => "MASTER"}
+}
+
+node vrrp_slave {
+	include keepalived::server
+	Keepalived::Virtual_server <| title == "lb_www" |> {state => "BACKUP"}
+	Keepalived::Virtual_server <| title == "lb_sql" |> {state => "BACKUP"}
+}
+
+
+node www1 {
+	keepalived::exported_real_server{"$fqdn-lb_www": 
+		virtual_server_name => "lb_www",
+                port => '80',
+                weight => '100',
+	}
+}
+
+node www2 {
+	keepalived::exported_real_server{"$fqdn-lb_www": 
+		virtual_server_name => "lb_www",
+                port => '80',
+                weight => '90',
+	}
+}
+
+node sql1 {
+	keepalived::exported_real_server{"$fqdn-lb_sql": 
+		virtual_server_name => "lb_sql",
+                port => '3306',
+                weight => '100',
+                check_type => 'MISC_CHECK',
+                check_misc_path => "/usr/local/bin/is_mysql_OK.sh $ipaddress",
+	}
+}
+
+node sql2 {
+	keepalived::exported_real_server{"$fqdn-lb_sql": 
+		virtual_server_name => "lb_sql",
+                port => '3306',
+                weight => '90',
+                check_type => 'MISC_CHECK',
+                check_misc_path => "/usr/local/bin/is_mysql_OK.sh $ipaddress",
+	}
+}

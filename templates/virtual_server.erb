@@ -1,0 +1,24 @@
+
+vrrp_instance <%= name %> {
+        state <%= state %>
+        interface <%= interface %>
+        virtual_router_id <%= virtual_router_id %>
+        priority <%= real_priority %>
+        advert_int 1
+        smtp_alert
+        authentication {
+                auth_type PASS
+                auth_pass <%= auth_pass %>
+        }
+
+        virtual_ipaddress {
+               <%= virtual_ipaddress %>
+        }
+} # END vrrp_instance <%= name %>
+
+virtual_server <%= virtual_ipaddress %> <%= virtual_server_port %> {
+    delay_loop 3
+    lb_algo wlc
+    lb_kind <%= lb_kind %>
+    nat_mask 255.255.255.0
+    protocol TCP
