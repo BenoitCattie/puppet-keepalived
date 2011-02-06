@@ -8,6 +8,7 @@
 #        virtual_ipaddress
 #        virtual_server_port
 #        lb_kind = 'DR' : Support only DR in this version
+#	 lb_algo = 'wlc
 #        interface = 'eth0'
 #        priority = '' : If not set, BACKUP will take 100 and MASTER 200
 
@@ -17,6 +18,7 @@ define keepalived::virtual_server (
 	$virtual_ipaddress,
 	$virtual_server_port,
 	$lb_kind = 'DR',
+	$lb_algo = 'wlc',
 	$interface = 'eth0',
 	$priority = '' ) {
 
